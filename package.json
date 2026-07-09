@@ -1,0 +1,9 @@
+{
+  "name": "skytaxi-server",
+  "version": "1.0.0",
+  "description": "Serveur local de gestion des réservations SkyTaxi",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  }
+}

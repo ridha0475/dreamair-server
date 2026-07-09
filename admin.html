@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SkyTaxi — Administration</title>
+    <style>
+        :root {
+            --bg: #000000;
+            --surface: #1c1c1e;
+            --text: #ffffff;
+            --text-secondary: #8e8e93;
+            --accent: #0a84ff;
+            --green: #30d158;
+            --red: #ff453a;
+            --orange: #ff9f0a;
+            --radius: 14px;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            padding: 20px;
+        }
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+        h1 { font-size: 28px; margin-bottom: 8px; }
+        .subtitle { color: var(--text-secondary); margin-bottom: 24px; }
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 16px;
+            margin-bottom: 32px;
+        }
+        .stat-card {
+            background: var(--surface);
+            border-radius: var(--radius);
+            padding: 20px;
+        }
+        .stat-card .label {
+            color: var(--text-secondary);
+            font-size: 14px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .stat-card .value {
+            font-size: 32px;
+            font-weight: 700;
+            margin-top: 8px;
+        }
+        .stat-card.revenue .value { color: var(--green); }
+        .actions-bar {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+        .filter-btn {
+            background: var(--surface);
+            border: none;
+            color: var(--text);
+            padding: 10px 18px;
+            border-radius: 20px;
+            cursor: pointer;
+            font-weight: 600;
+        }
+        .filter-btn.active { background: var(--accent); }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: var(--surface);
+            border-radius: var(--radius);
+            overflow: hidden;
+        }
+        th, td {
+            padding: 16px;
+            text-align: left;
+            border-bottom: 1px solid #2c2c2e;
+        }
+        th {
+            color: var(--text-secondary);
+            font-weight: 600;
+            font-size: 14px;
+            text-transform: uppercase;
+        }
+        .status {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: 700;
+            color: white;
+        }
+        .status-confirmed { background: var(--green); }
+        .status-cancelled { background: var(--red); }
+        .btn {
+            border: none;
+            padding: 8px 14px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+            margin-right: 6px;
+        }
+        .btn-cancel { background: var(--orange); color: black; }
+        .btn-delete { background: var(--red); color: white; }
+        .empty { color: var(--text-secondary); padding: 40px; text-align: center; }
+        .refresh {
+            background: var(--accent);
+            color: white;
+            border: none;
+            padding: 12px 20px;
+            border-radius: var(--radius);
+            font-weight: 700;
+            cursor: pointer;
+            margin-bottom: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>SkyTaxi — Administration</h1>
+        <p class="subtitle">Gestion de toutes les réservations</p>
+
+        <div class="stats" id="stats"></div>
+
+        <button class="refresh" onclick="loadData()">Actualiser</button>
+
+        <div class="actions-bar">
+            <button class="filter-btn active" onclick="setFilter('all')">Toutes</button>
+            <button class="filter-btn" onclick="setFilter('confirmed')">Confirmées</button>
+            <button class="filter-btn" onclick="setFilter('cancelled')">Annulées</button>
+        </div>
+
+        <div id="tableContainer"></div>
+    </div>
+
+    <script>
+        let currentFilter = 'all';
+        let allBookings = [];
+
+        function formatCurrency(amount) {
+            return new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(amount);
+        }
+
+        function formatDate(isoString) {
+            return new Date(isoString).toLocaleString('fr-FR', {
+                weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit'
+            });
+        }
+
+        async function apiGet(path) {
+            const res = await fetch(path);
+            if (!res.ok) throw new Error(res.statusText);
+            return res.json();
+        }
+
+        async function apiPatch(path) {
+            const res = await fetch(path, { method: 'PATCH' });
+            if (!res.ok) throw new Error(res.statusText);
+            return res.json();
+        }
+
+        async function apiDelete(path) {
+            const res = await fetch(path, { method: 'DELETE' });
+            if (!res.ok) throw new Error(res.statusText);
+            return res.json();
+        }
+
+        async function loadData() {
+            try {
+                const [stats, bookings] = await Promise.all([
+                    apiGet('/api/stats'),
+                    apiGet('/api/bookings')
+                ]);
+                allBookings = bookings;
+                renderStats(stats);
+                renderTable();
+            } catch (err) {
+                document.getElementById('tableContainer').innerHTML = `<p class="empty">Erreur : ${err.message}</p>`;
+            }
+        }
+
+        function renderStats(stats) {
+            document.getElementById('stats').innerHTML = `
+                <div class="stat-card"><div class="label">Réservations</div><div class="value">${stats.total}</div></div>
+                <div class="stat-card"><div class="label">Confirmées</div><div class="value" style="color:var(--green)">${stats.confirmed}</div></div>
+                <div class="stat-card"><div class="label">Annulées</div><div class="value" style="color:var(--red)">${stats.cancelled}</div></div>
+                <div class="stat-card revenue"><div class="label">Revenus estimés</div><div class="value">${formatCurrency(stats.revenue)}</div></div>
+            `;
+        }
+
+        function setFilter(filter) {
+            currentFilter = filter;
+            document.querySelectorAll('.filter-btn').forEach(btn => btn.classList.remove('active'));
+            event.target.classList.add('active');
+            renderTable();
+        }
+
+        function renderTable() {
+            const bookings = currentFilter === 'all'
+                ? allBookings
+                : allBookings.filter(b => b.status === currentFilter);
+
+            if (bookings.length === 0) {
+                document.getElementById('tableContainer').innerHTML = '<p class="empty">Aucune réservation.</p>';
+                return;
+            }
+
+            const rows = bookings.map(b => `
+                <tr>
+                    <td>${b.departure.code} → ${b.arrival.code}</td>
+                    <td>${formatDate(b.date)}</td>
+                    <td>${b.passengers}</td>
+                    <td>${formatCurrency(b.estimatedPrice)}</td>
+                    <td><span class="status status-${b.status}">${b.status === 'confirmed' ? 'Confirmée' : 'Annulée'}</span></td>
+                    <td>
+                        ${b.status === 'confirmed' ? `<button class="btn btn-cancel" onclick="cancelBooking('${b.id}')">Annuler</button>` : ''}
+                        <button class="btn btn-delete" onclick="deleteBooking('${b.id}')">Supprimer</button>
+                    </td>
+                </tr>
+            `).join('');
+
+            document.getElementById('tableContainer').innerHTML = `
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Trajet</th>
+                            <th>Date</th>
+                            <th>Passagers</th>
+                            <th>Prix</th>
+                            <th>Statut</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>${rows}</tbody>
+                </table>
+            `;
+        }
+
+        async function cancelBooking(id) {
+            if (!confirm('Annuler cette réservation ?')) return;
+            try {
+                await apiPatch(`/api/bookings/${id}/cancel`);
+                loadData();
+            } catch (err) {
+                alert('Erreur : ' + err.message);
+            }
+        }
+
+        async function deleteBooking(id) {
+            if (!confirm('Supprimer définitivement cette réservation ?')) return;
+            try {
+                await apiDelete(`/api/bookings/${id}`);
+                loadData();
+            } catch (err) {
+                alert('Erreur : ' + err.message);
+            }
+        }
+
+        loadData();
+
+        // Actualisation automatique toutes les 3 secondes
+        setInterval(loadData, 3000);
+    </script>
+</body>
+</html>
