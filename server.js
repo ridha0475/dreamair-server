@@ -8,15 +8,44 @@ const WEB_DIR = path.join(__dirname, '..', 'SkyTaxi-Web');
 const DATA_FILE = path.join(__dirname, 'data.json');
 
 const destinations = [
-    { id: 'tun', name: 'Aéroport de Tunis-Carthage', code: 'TUN', city: 'Tunis', country: 'Tunisie', basePrice: 320, pricePerKm: 4.2 },
-    { id: 'dje', name: 'Aéroport de Djerba-Zarzis', code: 'DJE', city: 'Djerba', country: 'Tunisie', basePrice: 340, pricePerKm: 4.4 },
-    { id: 'sfa', name: 'Aéroport de Sfax-Thyna', code: 'SFA', city: 'Sfax', country: 'Tunisie', basePrice: 330, pricePerKm: 4.3 },
-    { id: 'nbe', name: 'Aéroport Enfidha-Hammamet', code: 'NBE', city: 'Enfidha', country: 'Tunisie', basePrice: 310, pricePerKm: 4.1 },
-    { id: 'mir', name: 'Aéroport de Monastir', code: 'MIR', city: 'Monastir', country: 'Tunisie', basePrice: 315, pricePerKm: 4.15 },
-    { id: 'toe', name: 'Aéroport de Tozeur-Nefta', code: 'TOE', city: 'Tozeur', country: 'Tunisie', basePrice: 350, pricePerKm: 4.6 },
-    { id: 'gaf', name: 'Aéroport de Gafsa-Ksar', code: 'GAF', city: 'Gafsa', country: 'Tunisie', basePrice: 345, pricePerKm: 4.5 },
-    { id: 'tbj', name: 'Aéroport de Tabarka', code: 'TBJ', city: 'Tabarka', country: 'Tunisie', basePrice: 335, pricePerKm: 4.35 }
+    { id: 'tun', name: 'Aéroport de Tunis-Carthage', code: 'TUN', city: 'Tunis', country: 'Tunisie' },
+    { id: 'dje', name: 'Aéroport de Djerba-Zarzis', code: 'DJE', city: 'Djerba', country: 'Tunisie' },
+    { id: 'sfa', name: 'Aéroport de Sfax-Thyna', code: 'SFA', city: 'Sfax', country: 'Tunisie' },
+    { id: 'nbe', name: 'Aéroport Enfidha-Hammamet', code: 'NBE', city: 'Enfidha', country: 'Tunisie' },
+    { id: 'mir', name: 'Aéroport de Monastir', code: 'MIR', city: 'Monastir', country: 'Tunisie' },
+    { id: 'toe', name: 'Aéroport de Tozeur-Nefta', code: 'TOE', city: 'Tozeur', country: 'Tunisie' },
+    { id: 'gaf', name: 'Aéroport de Gafsa-Ksar', code: 'GAF', city: 'Gafsa', country: 'Tunisie' },
+    { id: 'tbj', name: 'Aéroport de Tabarka', code: 'TBJ', city: 'Tabarka', country: 'Tunisie' }
 ];
+
+// Tecnam P2012 Traveller — caractéristiques techniques
+const aircraft = {
+    model: 'Tecnam P2012 Traveller',
+    cruiseSpeedKmh: 315,      // 170 kts
+    fuelConsumptionLph: 151,  // ~40 US gal/h pour les 2 moteurs Lycoming TEO-540
+    fuelType: 'Avgas 100LL',
+    mtowKg: 3680              // < 5,7 t
+};
+
+// Paramètres économiques — À AJUSTER AVEC VOS TARIFS RÉELS
+const economics = {
+    avgasPricePerLiter: 4.5,  // DT/litre (prix indicatif en Tunisie)
+    hourlyRate: 1500          // DT/heure de vol (pilote, maintenance, assurance, amortissement)
+};
+
+// Barème indicatif des charges aéroportuaires tunisiennes pour appareil < 5,7 t
+// À remplacer par les tarifs exacts de l'AIP Tunisie
+const airportCharges = {
+    landing: {
+        base: 50,        // DT par mouvement
+        perTon: 20,      // DT par tonne de MTOW
+        min: 80,         // DT minimum par mouvement
+        max: 300         // DT maximum par mouvement
+    },
+    handling: {
+        perMovement: 120 // DT par mouvement (départ ou arrivée)
+    }
+};
 
 const knownDistances = {
     'TUN-DJE': 335, 'TUN-SFA': 230, 'TUN-NBE': 90, 'TUN-MIR': 130, 'TUN-TOE': 370, 'TUN-GAF': 300, 'TUN-TBJ': 135,
@@ -34,30 +63,51 @@ function distanceBetween(a, b) {
     return knownDistances[key1] || knownDistances[key2] || 250;
 }
 
+function calculateAirportCharges() {
+    const mtowTons = aircraft.mtowKg / 1000;
+    const landing = Math.min(
+        airportCharges.landing.max,
+        Math.max(
+            airportCharges.landing.min,
+            airportCharges.landing.base + (mtowTons * airportCharges.landing.perTon)
+        )
+    );
+    return {
+        landing: Math.round(landing * 100) / 100,
+        handling: airportCharges.handling.perMovement,
+        total: Math.round((landing + airportCharges.handling.perMovement) * 100) / 100
+    };
+}
+
 function estimatePriceDetail(departureId, arrivalId, passengers) {
     const departure = destinations.find(d => d.id === departureId);
     const arrival = destinations.find(d => d.id === arrivalId);
     if (!departure || !arrival) return null;
 
     const distance = distanceBetween(departure, arrival);
-    const avgPricePerKm = (departure.pricePerKm + arrival.pricePerKm) / 2;
-    const base = (departure.basePrice + arrival.basePrice) / 2;
-    const distanceCost = distance * avgPricePerKm;
-    const passengerMultiplier = 1 + ((passengers - 1) * 0.15);
-    const subtotal = base + distanceCost;
-    const total = subtotal * passengerMultiplier;
+    const flightHours = distance / aircraft.cruiseSpeedKmh;
+
+    const fuelCost = flightHours * aircraft.fuelConsumptionLph * economics.avgasPricePerLiter;
+    const aircraftCost = flightHours * economics.hourlyRate;
+    const departureCharges = calculateAirportCharges();
+    const arrivalCharges = calculateAirportCharges();
+    const totalAirportCharges = departureCharges.total + arrivalCharges.total;
+
+    const total = fuelCost + aircraftCost + totalAirportCharges;
 
     return {
         departure,
         arrival,
         passengers,
         distance,
-        base: Math.round(base * 100) / 100,
-        pricePerKm: Math.round(avgPricePerKm * 100) / 100,
-        distanceCost: Math.round(distanceCost * 100) / 100,
-        passengerMultiplier: Math.round(passengerMultiplier * 100) / 100,
-        passengerExtra: Math.round((total - subtotal) * 100) / 100,
-        subtotal: Math.round(subtotal * 100) / 100,
+        flightHours: Math.round(flightHours * 100) / 100,
+        aircraft,
+        economics,
+        fuelCost: Math.round(fuelCost * 100) / 100,
+        aircraftCost: Math.round(aircraftCost * 100) / 100,
+        departureCharges,
+        arrivalCharges,
+        airportChargesTotal: Math.round(totalAirportCharges * 100) / 100,
         total: Math.round(total * 100) / 100
     };
 }
