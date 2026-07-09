@@ -34,7 +34,7 @@ function distanceBetween(a, b) {
     return knownDistances[key1] || knownDistances[key2] || 250;
 }
 
-function estimatePrice(departureId, arrivalId, passengers) {
+function estimatePriceDetail(departureId, arrivalId, passengers) {
     const departure = destinations.find(d => d.id === departureId);
     const arrival = destinations.find(d => d.id === arrivalId);
     if (!departure || !arrival) return null;
@@ -44,7 +44,27 @@ function estimatePrice(departureId, arrivalId, passengers) {
     const base = (departure.basePrice + arrival.basePrice) / 2;
     const distanceCost = distance * avgPricePerKm;
     const passengerMultiplier = 1 + ((passengers - 1) * 0.15);
-    return (base + distanceCost) * passengerMultiplier;
+    const subtotal = base + distanceCost;
+    const total = subtotal * passengerMultiplier;
+
+    return {
+        departure,
+        arrival,
+        passengers,
+        distance,
+        base: Math.round(base * 100) / 100,
+        pricePerKm: Math.round(avgPricePerKm * 100) / 100,
+        distanceCost: Math.round(distanceCost * 100) / 100,
+        passengerMultiplier: Math.round(passengerMultiplier * 100) / 100,
+        passengerExtra: Math.round((total - subtotal) * 100) / 100,
+        subtotal: Math.round(subtotal * 100) / 100,
+        total: Math.round(total * 100) / 100
+    };
+}
+
+function estimatePrice(departureId, arrivalId, passengers) {
+    const detail = estimatePriceDetail(departureId, arrivalId, passengers);
+    return detail ? detail.total : null;
 }
 
 function loadBookings() {
@@ -143,15 +163,16 @@ const server = http.createServer((req, res) => {
         const departure = url.searchParams.get('departure');
         const arrival = url.searchParams.get('arrival');
         const passengers = parseInt(url.searchParams.get('passengers') || '1', 10);
-        const price = estimatePrice(departure, arrival, passengers);
-        if (price === null) {
+        const detail = estimatePriceDetail(departure, arrival, passengers);
+        if (detail === null) {
             sendError(res, 400, 'Destinations invalides');
             return;
         }
-        sendJson(res, 200, { price, distance: distanceBetween(
-            destinations.find(d => d.id === departure),
-            destinations.find(d => d.id === arrival)
-        )});
+        sendJson(res, 200, {
+            price: detail.total,
+            distance: detail.distance,
+            detail
+        });
         return;
     }
 
